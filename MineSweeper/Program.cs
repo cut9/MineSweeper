@@ -1,24 +1,38 @@
-﻿MineSweeper game = new();
+﻿using System.Text.Json;
+using System.Text.Json.Serialization;
+
+MineSweeper game = new();
 game.Play();
 
 public class MineSweeper
 {
-    private Cell[,] minefield = null;
-    private int maxMines = 0;
-    private int mineCounter = 0;
-    private int maxFlags = 0;
-    private int currentFlags = 0;
-    private int currentTurn = 0;
-    private bool isGameContinue = true;
-    private Random rand = new Random();
-    private List<LevelSettings> difficultyPresets = new()
+    private Cell[,] _minefield = null;
+    private int _maxMines = 0;
+    private int _mineCounter = 0;
+    private int _maxFlags = 0;
+    private int _currentFlags = 0;
+    private int _currentTurn = 0;
+    private bool _isGameContinue = true;
+    private Random _rand = new Random();
+    private List<DifficultySettings> _difficultyPresets = new()
     {
-        new LevelSettings(9, 9, 10, "Новичок"),
-        new LevelSettings(16, 16, 40, "Любитель"),
-        new LevelSettings(16, 30, 99, "Профессионал"),
-        new LevelSettings(9, 9, 10, "Особый\nНастраиваемая сложность")
+        new DifficultySettings(9, 9, 10, "Новичок"),
+        new DifficultySettings(16, 16, 40, "Любитель"),
+        new DifficultySettings(16, 30, 99, "Профессионал"),
+        new DifficultySettings(9, 9, 10, "Особый\nНастраиваемая сложность")
     };
-    private int currentDifficultyIndex = 0;
+    private int _currentDifficultyIndex = 0;
+    private readonly string? _folderPath = Path.Combine(
+    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+    "cut9\\MineSweeper"
+    );
+    private readonly string? _settings;
+    private readonly string? _statistic;
+    public MineSweeper()
+    {
+        _settings = Path.Combine(_folderPath, "Settings.json");
+        _statistic = Path.Combine(_folderPath, "Statistic.json");
+    }
     private class Cell
     {
         public int Number { get; private set; } = 0;
@@ -55,21 +69,21 @@ public class MineSweeper
             return true;
         }
     }
-
-    private class LevelSettings
+    private class DifficultySettings
     {
-        public int Rows;
-        public int Columns;
-        public int Mines;
-        public string Name;
-        public LevelSettings(int rows, int columns, int mines, string name)
+        [JsonIgnore]
+        public string Name { get; private set; }
+        public int Rows { get; set; }
+        public int Columns { get; set; }
+        public int Mines { get; set; }
+        public DifficultySettings() { }
+        public DifficultySettings(int rows, int columns, int mines, string name)
         {
             Rows = rows;
             Columns = columns;
             Mines = mines;
             Name = name;
         }
-
         public void ChangeRows(int rows) => Rows = rows;
         public void ChangeColumns(int columns) => Columns = columns;
         public void ChangeMines(int mines) => Mines = mines;
@@ -80,25 +94,21 @@ public class MineSweeper
         }
     }
 
-    public MineSweeper()
-    {
-        currentDifficultyIndex = 0;
-    }
-
     public void Play()
     {
-        while (isGameContinue)
+        LoadStatistic();
+        while (_isGameContinue)
         {
             PreGameSettings();
             CreateGame();
-            while (isGameContinue)
+            while (_isGameContinue)
             {
                 Console.Clear();
                 ShowMinefield();
                 Console.WriteLine("Введите команду (open row columns, flag row columns):");
                 Interact(Console.ReadLine());
             }
-            isGameContinue = ExitQuestion();
+            _isGameContinue = ExitQuestion();
         }
     }
 
@@ -129,9 +139,10 @@ public class MineSweeper
 
     private void PreGameSettings()
     {
+        LoadSettings();
         while (true)
         {
-            Console.WriteLine("Введите команду [Начать], [Выбрать сложность]:");
+            Console.WriteLine("Введите команду [Начать], [Выбрать сложность], [Статистика]:");
             var userInput = Console.ReadLine()?.Trim().ToLower();
             if (string.IsNullOrEmpty(userInput)) continue;
 
@@ -141,13 +152,20 @@ public class MineSweeper
             if (userInput is "выбрать сложность" or "сложность" or "выбрать" or "изменить" or "change" or "difficulty" or "c" or "d" or "в" or "и")
             {
                 Console.Clear();
-                for (int i = 0; i < difficultyPresets.Count; i++)
+                for (int i = 0; i < _difficultyPresets.Count; i++)
                 {
-                    Console.WriteLine($"{i + 1}. {difficultyPresets[i]}");
-                    if (i == currentDifficultyIndex) Console.WriteLine("Текущая сложность!");
+                    Console.WriteLine($"{i + 1}. {_difficultyPresets[i]}");
+                    if (i == _currentDifficultyIndex) Console.WriteLine("Текущая сложность!");
                     Console.WriteLine("-------------------------");
                 }
                 ChangeDifficulty();
+                continue;
+            }
+
+            if (userInput is "статистика" or "стат" or "stats")
+            {
+                Console.Clear();
+                ShowStats();
                 continue;
             }
 
@@ -169,14 +187,15 @@ public class MineSweeper
                 Console.Clear();
                 return;
             }
-            if (int.TryParse(userTextInput, out userNumberInput) && userNumberInput - 1 > -1 && userNumberInput - 1 < difficultyPresets.Count)
+            if (int.TryParse(userTextInput, out userNumberInput) && userNumberInput - 1 > -1 && userNumberInput - 1 < _difficultyPresets.Count)
             {
                 userNumberInput--;
                 if (userNumberInput == 3)
                     SpecialDifficultyChanger();
-                currentDifficultyIndex = userNumberInput;
+                _currentDifficultyIndex = userNumberInput;
                 Console.Clear();
                 Console.WriteLine("Настройки успешно изменены!");
+                SaveSettings();
                 return;
             }
             else
@@ -209,9 +228,9 @@ public class MineSweeper
 
             if (rows >= 9 && rows <= 30 && columns >= 9 && columns <= 30 && mines >= 10 && mines <= rows * columns - 18)
             {
-                difficultyPresets[3].ChangeRows(rows);
-                difficultyPresets[3].ChangeColumns(columns);
-                difficultyPresets[3].ChangeMines(mines);
+                _difficultyPresets[3].ChangeRows(rows);
+                _difficultyPresets[3].ChangeColumns(columns);
+                _difficultyPresets[3].ChangeMines(mines);
                 return;
             }
             else
@@ -223,9 +242,9 @@ public class MineSweeper
 
     private void ShowMinefield()
     {
-        if (minefield == null) return;
+        if (_minefield == null) return;
         Console.Write("[0]");
-        for (int i = 1; i <= minefield.GetLength(1); i++)
+        for (int i = 1; i <= _minefield.GetLength(1); i++)
         {
             if (i < 10)
                 Console.Write($" {i} ");
@@ -234,20 +253,20 @@ public class MineSweeper
         }
         Console.WriteLine();
 
-        for (int i = 0; i < minefield.GetLength(0); i++)
+        for (int i = 0; i < _minefield.GetLength(0); i++)
         {
-            for (int j = 0; j < minefield.GetLength(1); j++)
+            for (int j = 0; j < _minefield.GetLength(1); j++)
             {
                 if (j == 0 && i < 9)
                     Console.Write($"{i + 1}  ");
                 else if (j == 0)
                     Console.Write($"{i + 1} ");
 
-                Console.Write(minefield[i, j]);
+                Console.Write(_minefield[i, j]);
             }
             Console.WriteLine();
         }
-        Console.WriteLine($"Поставлено {currentFlags} флагов из {maxFlags}");
+        Console.WriteLine($"Поставлено {_currentFlags} флагов из {_maxFlags}");
     }
 
     private void Interact(string command)
@@ -259,7 +278,7 @@ public class MineSweeper
         input[0] = input[0].ToLower();
         x--;
         y--;
-        if (!IsValid(x, y) || minefield[x, y].IsOpened)
+        if (!IsValid(x, y) || _minefield[x, y].IsOpened)
             return;
 
         bool actionPerformed = false;
@@ -280,12 +299,12 @@ public class MineSweeper
                 actionPerformed = true;
                 break;
         }
-        if (actionPerformed) currentTurn++;
+        if (actionPerformed) _currentTurn++;
     }
 
     private void Open(int x, int y)
     {
-        if (mineCounter == 0)
+        if (_mineCounter == 0)
         {
             int[,] directions =
             {
@@ -298,12 +317,12 @@ public class MineSweeper
                 int newRow = x + directions[k, 0];
                 int newCol = y + directions[k, 1];
                 if (IsValid(newRow, newCol))
-                    minefield[newRow, newCol].CanBeMine = false;
+                    _minefield[newRow, newCol].CanBeMine = false;
             }
             CreateMinefield();
         }
         RevealEmptyCells(x, y);
-        if (minefield[x, y].IsMine)
+        if (_minefield[x, y].IsMine)
         {
             GameOver("Lose");
         }
@@ -312,10 +331,10 @@ public class MineSweeper
 
     private void RevealEmptyCells(int x, int y)
     {
-        if (!IsValid(x, y) || minefield[x, y].IsOpened || minefield[x, y].IsFlagged)
+        if (!IsValid(x, y) || _minefield[x, y].IsOpened || _minefield[x, y].IsFlagged)
             return;
-        minefield[x, y].Open();
-        if (minefield[x, y].Number > 0)
+        _minefield[x, y].Open();
+        if (_minefield[x, y].Number > 0)
             return;
         RevealEmptyCells(x - 1, y - 1);
         RevealEmptyCells(x - 1, y);
@@ -329,18 +348,18 @@ public class MineSweeper
 
     private void Flag(int x, int y)
     {
-        if (minefield[x, y].IsFlagged)
+        if (_minefield[x, y].IsFlagged)
         {
-            minefield[x, y].ToggleFlagMode();
-            currentFlags--;
+            _minefield[x, y].ToggleFlagMode();
+            _currentFlags--;
             return;
         }
-        if (!minefield[x, y].IsFlagged && currentFlags < maxFlags)
+        if (!_minefield[x, y].IsFlagged && _currentFlags < _maxFlags)
         {
-            minefield[x, y].ToggleFlagMode();
-            currentFlags++;
+            _minefield[x, y].ToggleFlagMode();
+            _currentFlags++;
         }
-        if (currentFlags == maxFlags)
+        if (_currentFlags == _maxFlags)
         {
             CheckWin();
         }
@@ -351,7 +370,7 @@ public class MineSweeper
         bool allNonMinesOpened = true;
         bool allMinesFlaggedCorrectly = true;
 
-        foreach (var cell in minefield)
+        foreach (var cell in _minefield)
         {
             if (!cell.IsMine && !cell.IsOpened)
                 allNonMinesOpened = false;
@@ -369,9 +388,9 @@ public class MineSweeper
 
     private void GameOver(string state)
     {
-        isGameContinue = false;
+        _isGameContinue = false;
         Console.Clear();
-        foreach (var cell in minefield)
+        foreach (var cell in _minefield)
         {
             cell.Open();
         }
@@ -385,37 +404,65 @@ public class MineSweeper
                 Console.WriteLine("В следующий раз точно получится. Вы проиграли.");
                 break;
         }
-        Console.WriteLine("Потрачено " + currentTurn + " ходов.");
+        Console.WriteLine("Потрачено " + _currentTurn + " ходов.");
+        StatModifier(state);
+    }
+
+    public void StatModifier(string lastGame)
+    {
+        DifficultyStats[_currentDifficultyIndex].GamesCounter++;
+        switch (lastGame)
+        {
+            case "Win":
+                DifficultyStats[_currentDifficultyIndex].WinsCounter++;
+                if (DifficultyStats[_currentDifficultyIndex].LastGame == lastGame)
+                    DifficultyStats[_currentDifficultyIndex].WinsStreak++;
+                if (DifficultyStats[_currentDifficultyIndex].WinsStreak > DifficultyStats[_currentDifficultyIndex].WinsInRow++)
+                    DifficultyStats[_currentDifficultyIndex].WinsInRow = DifficultyStats[_currentDifficultyIndex].WinsStreak;
+                DifficultyStats[_currentDifficultyIndex].LastGame = lastGame;
+                if (_currentTurn > DifficultyStats[_currentDifficultyIndex].BestTurns)
+                    DifficultyStats[_currentDifficultyIndex].BestTurns = _currentTurn;
+                break;
+            case "Lose":
+                DifficultyStats[_currentDifficultyIndex].LosesCounter++;
+                if (DifficultyStats[_currentDifficultyIndex].LastGame == lastGame)
+                    DifficultyStats[_currentDifficultyIndex].LosesStreak++;
+                if (DifficultyStats[_currentDifficultyIndex].LosesStreak > DifficultyStats[_currentDifficultyIndex].LosesInRow++)
+                    DifficultyStats[_currentDifficultyIndex].LosesInRow = DifficultyStats[_currentDifficultyIndex].LosesStreak;
+                DifficultyStats[_currentDifficultyIndex].LastGame = lastGame;
+                break;
+        }
+        SaveStatistic();
     }
 
     private void CreateGame()
     {
-        var cur = difficultyPresets[currentDifficultyIndex];
-        maxMines = cur.Mines;
-        maxFlags = maxMines;
-        currentFlags = 0;
-        currentTurn = 0;
-        mineCounter = 0;
-        minefield = null;
-        minefield = new Cell[cur.Rows, cur.Columns];
-        for (int i = 0; i < minefield.GetLength(0); i++)
+        var cur = _difficultyPresets[_currentDifficultyIndex];
+        _maxMines = cur.Mines;
+        _maxFlags = _maxMines;
+        _currentFlags = 0;
+        _currentTurn = 0;
+        _mineCounter = 0;
+        _minefield = null;
+        _minefield = new Cell[cur.Rows, cur.Columns];
+        for (int i = 0; i < _minefield.GetLength(0); i++)
         {
-            for (int j = 0; j < minefield.GetLength(1); j++)
+            for (int j = 0; j < _minefield.GetLength(1); j++)
             {
-                minefield[i, j] = new Cell();
+                _minefield[i, j] = new Cell();
             }
         }
     }
 
     private void CreateMinefield()
     {
-        while (mineCounter < maxMines)
+        while (_mineCounter < _maxMines)
         {
-            int i = rand.Next(0, minefield.GetLength(0));
-            int j = rand.Next(0, minefield.GetLength(1));
-            if (minefield[i, j].MakeNewMine())
+            int i = _rand.Next(0, _minefield.GetLength(0));
+            int j = _rand.Next(0, _minefield.GetLength(1));
+            if (_minefield[i, j].MakeNewMine())
             {
-                mineCounter++;
+                _mineCounter++;
                 AddMinefieldNumber(i, j);
             }
         }
@@ -434,8 +481,105 @@ public class MineSweeper
             int newRow = i + directions[k, 0];
             int newCol = j + directions[k, 1];
             if (IsValid(newRow, newCol))
-                minefield[newRow, newCol].IncreaseNumber();
+                _minefield[newRow, newCol].IncreaseNumber();
         }
     }
-    private bool IsValid(int x, int y) => minefield != null && x >= 0 && x < minefield.GetLength(0) && y >= 0 && y < minefield.GetLength(1);
+    private bool IsValid(int x, int y) => _minefield != null && x >= 0 && x < _minefield.GetLength(0) && y >= 0 && y < _minefield.GetLength(1);
+    public class GameSettings
+    {
+        public int CurrentDifficultyIndex { get; set; }
+        public DifficultyDto? SpecialPreset { get; set; }
+    }
+    public class DifficultyDto
+    {
+        public int Rows { get; set; }
+        public int Columns { get; set; }
+        public int Mines { get; set; }
+    }
+    public void FolderExistingCheck()
+    {
+        if (!Directory.Exists(_folderPath))
+            Directory.CreateDirectory(_folderPath);
+    }
+    private void SaveSettings()
+    {
+        FolderExistingCheck();
+        var settingsObj = new
+        {
+            CurrentDifficultyIndex = _currentDifficultyIndex,
+            SpecialPreset = new
+            {
+                _difficultyPresets[3].Rows,
+                _difficultyPresets[3].Columns,
+                _difficultyPresets[3].Mines
+            }
+        };
+        string json = JsonSerializer.Serialize(settingsObj);
+        File.WriteAllText(_settings, json);
+    }
+    private void LoadSettings()
+    {
+        if (!File.Exists(_settings)) return;
+        string json = File.ReadAllText(_settings);
+        var settingsObj = JsonSerializer.Deserialize<GameSettings>(json);
+        _currentDifficultyIndex = settingsObj.CurrentDifficultyIndex;
+        _difficultyPresets[3].Rows = settingsObj.SpecialPreset.Rows;
+        _difficultyPresets[3].Columns = settingsObj.SpecialPreset.Columns;
+        _difficultyPresets[3].Mines = settingsObj.SpecialPreset.Mines;
+    }
+    private class Statistic
+    {
+        public int GamesCounter = 0;
+        public int WinsCounter = 0;
+        public int LosesCounter = 0;
+        public float WinsPercent => GamesCounter == 0 ? 0 : (float)WinsCounter / GamesCounter * 100f;
+        public int WinsStreak = 0;
+        public int WinsInRow = 0;
+        public int LosesStreak = 0;
+        public int LosesInRow = 0;
+        public string LastGame = "Нет данных о последней игре.";
+        public int BestTurns = 0;
+        public override string ToString()
+        {
+            return
+                $"Всего игр: {GamesCounter}\n" +
+                $"Всего побед: {WinsCounter}\n" +
+                $"Всего проигрышей: {LosesCounter}\n" +
+                $"Процент побед: {WinsPercent:F2}%\n" +
+                $"Побед подряд: {WinsInRow}\n" +
+                $"Проигрышей подряд: {LosesInRow}\n" +
+                $"Минимальное количество ходов для победы: {BestTurns}\n" +
+                $"Последняя игра: {LastGame}";
+        }
+    }
+    Statistic[] DifficultyStats =
+    {
+        new Statistic(),
+        new Statistic(),
+        new Statistic(),
+        new Statistic()
+    };
+    private void ShowStats()
+    {
+        for (int i = 0; i < 4; i++)
+        {
+            Console.WriteLine($"{i + 1}. {_difficultyPresets[i].Name}\n{DifficultyStats[i]}");
+            Console.WriteLine("----------------------------------------------");
+        }
+    }
+    private void SaveStatistic()
+    {
+        FolderExistingCheck();
+        var settingsObj = DifficultyStats;
+        string json = JsonSerializer.Serialize(settingsObj);
+        File.WriteAllText(_statistic, json);
+    }
+    private void LoadStatistic()
+    {
+        if (!File.Exists(_statistic)) return;
+        string json = File.ReadAllText(_statistic);
+        var settingsObj = JsonSerializer.Deserialize<Statistic[]>(json);
+        if (settingsObj != null)
+            DifficultyStats = settingsObj;
+    }
 }
