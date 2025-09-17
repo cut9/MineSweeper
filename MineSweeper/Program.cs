@@ -22,7 +22,7 @@ public class MineSweeper
         new DifficultySettings(9, 9, 10, "Особый\nНастраиваемая сложность")
     };
     private int _currentDifficultyIndex = 0;
-    private readonly string? _folderPath = Path.Combine(
+    private readonly string _folderPath = Path.Combine(
     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
     "cut9\\MineSweeper"
     );
@@ -325,6 +325,7 @@ public class MineSweeper
         if (_minefield[x, y].IsMine)
         {
             GameOver("Lose");
+            return;
         }
         CheckWin();
     }
@@ -410,30 +411,31 @@ public class MineSweeper
 
     public void StatModifier(string lastGame)
     {
-        DifficultyStats[_currentDifficultyIndex].GamesCounter++;
-        switch (lastGame)
+        var stat = DifficultyStats[_currentDifficultyIndex];
+        stat.GamesCounter++;
+
+        if (lastGame == "Win")
         {
-            case "Win":
-                DifficultyStats[_currentDifficultyIndex].WinsCounter++;
-                if (DifficultyStats[_currentDifficultyIndex].LastGame == lastGame)
-                    DifficultyStats[_currentDifficultyIndex].WinsStreak++;
-                if (DifficultyStats[_currentDifficultyIndex].WinsStreak > DifficultyStats[_currentDifficultyIndex].WinsInRow++)
-                    DifficultyStats[_currentDifficultyIndex].WinsInRow = DifficultyStats[_currentDifficultyIndex].WinsStreak;
-                DifficultyStats[_currentDifficultyIndex].LastGame = lastGame;
-                if (_currentTurn > DifficultyStats[_currentDifficultyIndex].BestTurns)
-                    DifficultyStats[_currentDifficultyIndex].BestTurns = _currentTurn;
-                break;
-            case "Lose":
-                DifficultyStats[_currentDifficultyIndex].LosesCounter++;
-                if (DifficultyStats[_currentDifficultyIndex].LastGame == lastGame)
-                    DifficultyStats[_currentDifficultyIndex].LosesStreak++;
-                if (DifficultyStats[_currentDifficultyIndex].LosesStreak > DifficultyStats[_currentDifficultyIndex].LosesInRow++)
-                    DifficultyStats[_currentDifficultyIndex].LosesInRow = DifficultyStats[_currentDifficultyIndex].LosesStreak;
-                DifficultyStats[_currentDifficultyIndex].LastGame = lastGame;
-                break;
+            stat.WinsCounter++;
+            if (stat.LastGame == lastGame) stat.WinsStreak++; else stat.WinsStreak = 1;
+            if (stat.WinsStreak > stat.WinsInRow) stat.WinsInRow = stat.WinsStreak;
+            stat.LosesStreak = 0;
+            stat.LastGame = lastGame;
+            if (_currentTurn > 0 && (_currentTurn < stat.BestTurns || stat.BestTurns == 0))
+                stat.BestTurns = _currentTurn;
         }
+        else if (lastGame == "Lose")
+        {
+            stat.LosesCounter++;
+            if (stat.LastGame == lastGame) stat.LosesStreak++; else stat.LosesStreak = 1;
+            if (stat.LosesStreak > stat.LosesInRow) stat.LosesInRow = stat.LosesStreak;
+            stat.WinsStreak = 0;
+            stat.LastGame = lastGame;
+        }
+
         SaveStatistic();
     }
+
 
     private void CreateGame()
     {
@@ -521,24 +523,32 @@ public class MineSweeper
     {
         if (!File.Exists(_settings)) return;
         string json = File.ReadAllText(_settings);
-        var settingsObj = JsonSerializer.Deserialize<GameSettings>(json);
+
+        var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        var settingsObj = JsonSerializer.Deserialize<GameSettings>(json, opts);
+        if (settingsObj == null) return;
+
         _currentDifficultyIndex = settingsObj.CurrentDifficultyIndex;
-        _difficultyPresets[3].Rows = settingsObj.SpecialPreset.Rows;
-        _difficultyPresets[3].Columns = settingsObj.SpecialPreset.Columns;
-        _difficultyPresets[3].Mines = settingsObj.SpecialPreset.Mines;
+        if (settingsObj.SpecialPreset != null)
+        {
+            _difficultyPresets[3].Rows = settingsObj.SpecialPreset.Rows;
+            _difficultyPresets[3].Columns = settingsObj.SpecialPreset.Columns;
+            _difficultyPresets[3].Mines = settingsObj.SpecialPreset.Mines;
+        }
     }
+
     private class Statistic
     {
-        public int GamesCounter = 0;
-        public int WinsCounter = 0;
-        public int LosesCounter = 0;
+        public int GamesCounter { get; set; } = 0;
+        public int WinsCounter { get; set; } = 0;
+        public int LosesCounter { get; set; } = 0;
         public float WinsPercent => GamesCounter == 0 ? 0 : (float)WinsCounter / GamesCounter * 100f;
-        public int WinsStreak = 0;
-        public int WinsInRow = 0;
-        public int LosesStreak = 0;
-        public int LosesInRow = 0;
-        public string LastGame = "Нет данных о последней игре.";
-        public int BestTurns = 0;
+        public int WinsStreak { get; set; } = 0;
+        public int WinsInRow { get; set; } = 0;
+        public int LosesStreak { get; set; } = 0;
+        public int LosesInRow { get; set; } = 0;
+        public string LastGame { get; set; } = "Нет данных о последней игре.";
+        public int BestTurns { get; set; } = 0;
         public override string ToString()
         {
             return
